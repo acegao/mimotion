@@ -60,7 +60,7 @@ def main() -> int:
     completed = state["completed"]
 
     if count_toward_daily:
-        candidates = [slot for slot in due_slots(now) if slot not in completed]
+        candidates = [slot for slot in due_slots(now) if slot not in completed][:1]
         if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" and not candidates:
             candidates = [slot for slot in SLOTS if slot not in completed][:1]
     else:
