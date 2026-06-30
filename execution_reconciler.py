@@ -1,36 +1,12 @@
-import json
 import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime
 
+from util.execution_state import SHANGHAI, load_state, save_state
 
 SLOTS = ("08:30", "09:30", "11:30", "13:30", "15:30", "17:30", "19:30")
-STATE_PATH = Path("runtime/execution_state.json")
-SHANGHAI = timezone(timedelta(hours=8), name="Asia/Shanghai")
-
-
-def load_state(today: str) -> dict:
-    try:
-        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        state = {}
-
-    if state.get("date") != today or not isinstance(state.get("completed"), dict):
-        return {"date": today, "completed": {}}
-    return state
-
-
-def save_state(state: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = STATE_PATH.with_suffix(".tmp")
-    temporary_path.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary_path.replace(STATE_PATH)
 
 
 def write_action_output(name: str, value: str) -> None:
@@ -56,7 +32,8 @@ def run_main() -> None:
 def main() -> int:
     count_toward_daily = os.environ.get("COUNT_TOWARD_DAILY", "true").lower() == "true"
     now = datetime.now(SHANGHAI)
-    state = load_state(now.date().isoformat())
+    today = now.date().isoformat()
+    state = load_state(today)
     completed = state["completed"]
 
     if count_toward_daily:
@@ -78,6 +55,8 @@ def main() -> int:
             break
         executed += 1
         if count_toward_daily:
+            state = load_state(today)
+            completed = state["completed"]
             completed[slot] = datetime.now(SHANGHAI).isoformat(timespec="seconds")
             save_state(state)
         if index < len(candidates) - 1:

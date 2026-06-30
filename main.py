@@ -14,6 +14,7 @@ import os
 from util.aes_help import encrypt_data, decrypt_data
 import util.zepp_helper as zeppHelper
 import util.push_util as push_util
+from util.execution_state import account_state_key, load_state, save_state
 
 # 获取默认值转int
 def get_int_value_default(_config: dict, _key, default):
@@ -31,6 +32,43 @@ def get_min_max_by_time(hour=None, minute=None):
     min_step = get_int_value_default(config, 'MIN_STEP', 18000)
     max_step = get_int_value_default(config, 'MAX_STEP', 25000)
     return int(time_rate * min_step), int(time_rate * max_step)
+
+
+def get_account_state_secret():
+    if globals().get("encrypt_support"):
+        return globals().get("aes_key")
+    return None
+
+
+def get_last_success_step(state_key):
+    state = load_state(time_bj.date().isoformat())
+    try:
+        return int(state.get("last_steps", {}).get(state_key))
+    except (TypeError, ValueError):
+        return None
+
+
+def persist_success_steps(exec_results):
+    state = load_state(time_bj.date().isoformat())
+    last_steps = state.setdefault("last_steps", {})
+    changed = False
+    for result in exec_results:
+        if result.get("success") is not True:
+            continue
+        state_key = result.get("state_key")
+        step = result.get("step")
+        if not state_key or step is None:
+            continue
+        try:
+            step = int(step)
+            previous = int(last_steps.get(state_key, 0))
+        except (TypeError, ValueError):
+            previous = 0
+        if step > previous:
+            last_steps[state_key] = step
+            changed = True
+    if changed:
+        save_state(state)
 
 
 # 虚拟ip地址
@@ -177,15 +215,24 @@ class MiMotionRunner:
     # 主函数
     def login_and_post_step(self, min_step, max_step):
         if self.invalid:
-            return "账号或密码配置有误", False
+            return "账号或密码配置有误", False, None, None
         app_token = self.login()
         if app_token is None:
-            return "登陆失败！", False
+            return "登陆失败！", False, None, None
 
-        step = str(random.randint(min_step, max_step))
-        self.log_str += f"已设置为随机步数范围({min_step}~{max_step}) 随机值:{step}\n"
+        state_key = account_state_key(self.user_id or self.user, get_account_state_secret())
+        last_step = get_last_success_step(state_key)
+        random_min_step = min_step
+        if last_step is not None:
+            random_min_step = max(min_step, last_step + 1)
+        random_max_step = max(max_step, random_min_step)
+        step = str(random.randint(random_min_step, random_max_step))
+        if last_step is None:
+            self.log_str += f"已设置为随机步数范围({random_min_step}~{random_max_step}) 随机值:{step}\n"
+        else:
+            self.log_str += f"上次成功步数:{last_step} 本次随机步数范围({random_min_step}~{random_max_step}) 随机值:{step}\n"
         ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
-        return f"修改步数（{step}）[" + msg + "]", ok
+        return f"修改步数（{step}）[" + msg + "]", ok, state_key, int(step)
 
 
 def run_single_account(total, idx, user_mi, passwd_mi):
@@ -195,11 +242,11 @@ def run_single_account(total, idx, user_mi, passwd_mi):
     log_str = f"[{format_now()}]\n{idx_info}账号：{desensitize_user_name(user_mi)}\n"
     try:
         runner = MiMotionRunner(user_mi, passwd_mi)
-        exec_msg, success = runner.login_and_post_step(min_step, max_step)
+        exec_msg, success, state_key, step = runner.login_and_post_step(min_step, max_step)
         log_str += runner.log_str
         log_str += f'{exec_msg}\n'
         exec_result = {"user": user_mi, "success": success,
-                       "msg": exec_msg}
+                       "msg": exec_msg, "state_key": state_key, "step": step}
     except:
         log_str += f"执行异常:{traceback.format_exc()}\n"
         log_str += traceback.format_exc()
@@ -218,8 +265,8 @@ def execute():
         if use_concurrent:
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                exec_results = executor.map(lambda x: run_single_account(total, x[0], *x[1]),
-                                            enumerate(zip(user_list, passwd_list)))
+                exec_results = list(executor.map(lambda x: run_single_account(total, x[0], *x[1]),
+                                                 enumerate(zip(user_list, passwd_list))))
         else:
             for user_mi, passwd_mi in zip(user_list, passwd_list):
                 exec_results.append(run_single_account(total, idx, user_mi, passwd_mi))
@@ -229,6 +276,7 @@ def execute():
                     time.sleep(sleep_seconds)
         if encrypt_support:
             persist_user_tokens()
+        persist_success_steps(exec_results)
         success_count = 0
         push_results = []
         for result in exec_results:
