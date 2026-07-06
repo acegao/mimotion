@@ -6,7 +6,7 @@ from datetime import datetime
 
 from util.execution_state import SHANGHAI, load_state, save_state
 
-SLOTS = ("08:30", "09:30", "11:30", "13:30", "15:30", "17:30", "19:30")
+SLOTS = ("08:30", "10:30", "12:30", "14:30", "16:30", "18:30", "20:30")
 
 
 def write_action_output(name: str, value: str) -> None:
@@ -34,7 +34,14 @@ def main() -> int:
     now = datetime.now(SHANGHAI)
     today = now.date().isoformat()
     state = load_state(today)
-    completed = state["completed"]
+    completed = {
+        slot: completed_at
+        for slot, completed_at in state["completed"].items()
+        if slot in SLOTS
+    }
+    if completed != state["completed"]:
+        state["completed"] = completed
+        save_state(state)
 
     if count_toward_daily:
         candidates = [slot for slot in due_slots(now) if slot not in completed][:1]
