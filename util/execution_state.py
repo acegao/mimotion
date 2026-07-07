@@ -13,8 +13,8 @@ def today_shanghai() -> str:
     return datetime.now(SHANGHAI).date().isoformat()
 
 
-def new_daily_state(today: str) -> dict:
-    return {"date": today, "completed": {}, "last_steps": {}}
+def new_daily_state(today: str, last_steps: dict | None = None) -> dict:
+    return {"date": today, "completed": {}, "last_steps": last_steps or {}}
 
 
 def load_state(today: str | None = None) -> dict:
@@ -25,10 +25,10 @@ def load_state(today: str | None = None) -> dict:
     except (FileNotFoundError, json.JSONDecodeError):
         state = {}
 
-    if state.get("date") != today or not isinstance(state.get("completed"), dict):
-        return new_daily_state(today)
     if not isinstance(state.get("last_steps"), dict):
         state["last_steps"] = {}
+    if state.get("date") != today or not isinstance(state.get("completed"), dict):
+        return new_daily_state(today, dict(state["last_steps"]))
     return state
 
 
