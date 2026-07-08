@@ -16,10 +16,24 @@ import util.zepp_helper as zeppHelper
 import util.push_util as push_util
 from util.execution_state import account_state_key, load_state, save_state
 
+STEP_CURVE_START_MINUTE = 8 * 60 + 30
+STEP_CURVE_END_MINUTE = 21 * 60 + 30
+STEP_CURVE_INITIAL_RATE = 0.16
+STEP_CURVE_FINAL_RATE = 0.95
+
+
 # 获取默认值转int
 def get_int_value_default(_config: dict, _key, default):
     _config.setdefault(_key, default)
     return int(_config.get(_key))
+
+
+def clamp(value, lower, upper):
+    return max(lower, min(value, upper))
+
+
+def smooth_step(value):
+    return value * value * (3 - 2 * value)
 
 
 # 获取当前时间对应的最大和最小步数
@@ -28,7 +42,15 @@ def get_min_max_by_time(hour=None, minute=None):
         hour = time_bj.hour
     if minute is None:
         minute = time_bj.minute
-    time_rate = min((hour * 60 + minute) / (22 * 60), 1)
+    current_minute = hour * 60 + minute
+    progress = clamp(
+        (current_minute - STEP_CURVE_START_MINUTE) / (STEP_CURVE_END_MINUTE - STEP_CURVE_START_MINUTE),
+        0,
+        1,
+    )
+    time_rate = STEP_CURVE_INITIAL_RATE + (
+        STEP_CURVE_FINAL_RATE - STEP_CURVE_INITIAL_RATE
+    ) * smooth_step(progress)
     min_step = get_int_value_default(config, 'MIN_STEP', 18000)
     max_step = get_int_value_default(config, 'MAX_STEP', 25000)
     return int(time_rate * min_step), int(time_rate * max_step)
