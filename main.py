@@ -18,8 +18,9 @@ from util.execution_state import account_state_key, load_state, save_state
 
 STEP_CURVE_START_MINUTE = 8 * 60 + 30
 STEP_CURVE_END_MINUTE = 21 * 60 + 30
-STEP_CURVE_INITIAL_RATE = 0.16
-STEP_CURVE_FINAL_RATE = 0.95
+STEP_CURVE_INITIAL_RATE = 0.18
+STEP_CURVE_FINAL_RATE = 0.65
+STEP_DAILY_MAX = 18000
 
 
 # 获取默认值转int
@@ -53,7 +54,9 @@ def get_min_max_by_time(hour=None, minute=None):
     ) * smooth_step(progress)
     min_step = get_int_value_default(config, 'MIN_STEP', 18000)
     max_step = get_int_value_default(config, 'MAX_STEP', 25000)
-    return int(time_rate * min_step), int(time_rate * max_step)
+    max_bound = min(int(time_rate * max_step), STEP_DAILY_MAX)
+    min_bound = min(int(time_rate * min_step), max_bound)
+    return min_bound, max_bound
 
 
 def get_account_state_secret():
@@ -247,7 +250,8 @@ class MiMotionRunner:
         random_min_step = min_step
         if last_step is not None:
             random_min_step = max(min_step, last_step + 1)
-        random_max_step = max(max_step, random_min_step)
+        random_min_step = min(random_min_step, STEP_DAILY_MAX)
+        random_max_step = max(random_min_step, min(max_step, STEP_DAILY_MAX))
         step = str(random.randint(random_min_step, random_max_step))
         if last_step is None:
             self.log_str += f"已设置为随机步数范围({random_min_step}~{random_max_step}) 随机值:{step}\n"
